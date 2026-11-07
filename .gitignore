@@ -1,0 +1,3 @@
+# Ignore blend backup files
+*.blend1
+*.blend2

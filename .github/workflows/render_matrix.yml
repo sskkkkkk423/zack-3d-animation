@@ -1,0 +1,73 @@
+name: Parallel 3D Render (Zack D. Films Style)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # Split 300 frames across 6 parallel jobs (50 frames each)
+  render-chunk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk:
+          - { id: 1, start: 1,   end: 50  }
+          - { id: 2, start: 51,  end: 100 }
+          - { id: 3, start: 101, end: 150 }
+          - { id: 4, start: 151, end: 200 }
+          - { id: 5, start: 201, end: 250 }
+          - { id: 6, start: 251, end: 300 }
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Blender
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y blender > /dev/null
+
+      - name: Render Chunk ${{ matrix.chunk.id }} (Frames ${{ matrix.chunk.start }} - ${{ matrix.chunk.end }})
+        run: |
+          mkdir -p output
+          blender -b zack_animation.blend \
+            -s ${{ matrix.chunk.start }} \
+            -e ${{ matrix.chunk.end }} \
+            -o "//output/frame_####" \
+            -a
+
+      - name: Upload Chunk Frames
+        uses: actions/upload-artifact@v4
+        with:
+          name: frames-part-${{ matrix.chunk.id }}
+          path: output/*.png
+
+  # Collect all frames and assemble into final MP4 video
+  assemble-video:
+    needs: render-chunk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all rendered parts
+        uses: actions/download-artifact@v4
+        with:
+          path: all_parts
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      - name: Merge into MP4
+        run: |
+          mkdir -p final_sequence
+          find all_parts -name "*.png" -exec cp {} final_sequence/ \;
+          ffmpeg -framerate 30 -pattern_type glob -i 'final_sequence/*.png' \
+            -c:v libx264 -pix_fmt yuv420p zack_animation_10s.mp4
+
+      - name: Upload Finished MP4 Video
+        uses: actions/upload-artifact@v4
+        with:
+          name: zack-animation-final-video
+          path: zack_animation_10s.mp4
